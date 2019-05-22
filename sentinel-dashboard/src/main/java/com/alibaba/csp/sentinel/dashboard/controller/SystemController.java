@@ -18,6 +18,11 @@ package com.alibaba.csp.sentinel.dashboard.controller;
 import java.util.Date;
 import java.util.List;
 
+import javax.servlet.http.HttpServletRequest;
+
+import com.alibaba.csp.sentinel.dashboard.auth.AuthService;
+import com.alibaba.csp.sentinel.dashboard.auth.AuthService.AuthUser;
+import com.alibaba.csp.sentinel.dashboard.auth.AuthService.PrivilegeType;
 import com.alibaba.csp.sentinel.util.StringUtil;
 
 import com.alibaba.csp.sentinel.dashboard.datasource.entity.rule.SystemRuleEntity;
@@ -25,6 +30,7 @@ import com.alibaba.csp.sentinel.dashboard.discovery.MachineInfo;
 import com.alibaba.csp.sentinel.dashboard.client.SentinelApiClient;
 import com.alibaba.csp.sentinel.dashboard.domain.Result;
 import com.alibaba.csp.sentinel.dashboard.repository.rule.InMemSystemRuleStore;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,10 +51,14 @@ public class SystemController {
     private InMemSystemRuleStore repository;
     @Autowired
     private SentinelApiClient sentinelApiClient;
+    @Autowired
+    private AuthService<HttpServletRequest> authService;
 
     @ResponseBody
     @RequestMapping("/rules.json")
-    Result<List<SystemRuleEntity>> queryMachineRules(String app, String ip, Integer port) {
+    Result<List<SystemRuleEntity>> queryMachineRules(HttpServletRequest request, String app, String ip, Integer port) {
+        AuthUser authUser = authService.getAuthUser(request);
+        authUser.authTarget(app, PrivilegeType.READ_RULE);
         if (StringUtil.isEmpty(app)) {
             return Result.ofFail(-1, "app can't be null or empty");
         }
@@ -68,7 +78,7 @@ public class SystemController {
         }
     }
 
-    private int countNotNullAndNotNegtive(Number... values) {
+    private int countNotNullAndNotNegative(Number... values) {
         int notNullCount = 0;
         for (int i = 0; i < values.length; i++) {
             if (values[i] != null && values[i].doubleValue() >= 0) {
@@ -80,7 +90,10 @@ public class SystemController {
 
     @ResponseBody
     @RequestMapping("/new.json")
-    Result<?> add(String app, String ip, Integer port, Double avgLoad, Long avgRt, Long maxThread, Double qps) {
+    Result<?> add(HttpServletRequest request,
+                  String app, String ip, Integer port, Double avgLoad, Long avgRt, Long maxThread, Double qps) {
+        AuthUser authUser = authService.getAuthUser(request);
+        authUser.authTarget(app, PrivilegeType.WRITE_RULE);
         if (StringUtil.isBlank(app)) {
             return Result.ofFail(-1, "app can't be null or empty");
         }
@@ -90,7 +103,7 @@ public class SystemController {
         if (port == null) {
             return Result.ofFail(-1, "port can't be null");
         }
-        int notNullCount = countNotNullAndNotNegtive(avgLoad, avgRt, maxThread, qps);
+        int notNullCount = countNotNullAndNotNegative(avgLoad, avgRt, maxThread, qps);
         if (notNullCount != 1) {
             return Result.ofFail(-1, "only one of [avgLoad, avgRt, maxThread, qps] "
                 + "value must be set >= 0, but " + notNullCount + " values get");
@@ -137,7 +150,9 @@ public class SystemController {
 
     @ResponseBody
     @RequestMapping("/save.json")
-    Result<?> updateIfNotNull(Long id, String app, Double avgLoad, Long avgRt, Long maxThread, Double qps) {
+    Result<?> updateIfNotNull(HttpServletRequest request,
+                              Long id, String app, Double avgLoad, Long avgRt, Long maxThread, Double qps) {
+        AuthUser authUser = authService.getAuthUser(request);
         if (id == null) {
             return Result.ofFail(-1, "id can't be null");
         }
@@ -145,6 +160,7 @@ public class SystemController {
         if (entity == null) {
             return Result.ofFail(-1, "id " + id + " dose not exist");
         }
+        authUser.authTarget(entity.getApp(), PrivilegeType.WRITE_RULE);
         if (StringUtil.isNotBlank(app)) {
             entity.setApp(app.trim());
         }
@@ -188,7 +204,8 @@ public class SystemController {
 
     @ResponseBody
     @RequestMapping("/delete.json")
-    Result<?> delete(Long id) {
+    Result<?> delete(HttpServletRequest request, Long id) {
+        AuthUser authUser = authService.getAuthUser(request);
         if (id == null) {
             return Result.ofFail(-1, "id can't be null");
         }
@@ -196,6 +213,7 @@ public class SystemController {
         if (oldEntity == null) {
             return Result.ofSuccess(null);
         }
+        authUser.authTarget(oldEntity.getApp(), PrivilegeType.DELETE_RULE);
         try {
             repository.delete(id);
         } catch (Throwable throwable) {
